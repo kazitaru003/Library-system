@@ -627,6 +627,8 @@ function validateReturnForm() {
     
     return true;
 }
+
+function editBook(isbn, title, author, genre, year, quantity, quantity_borrowed) {
     document.getElementById('edit_isbn').value = isbn;
     document.getElementById('edit_title').value = title;
     document.getElementById('edit_author').value = author;
