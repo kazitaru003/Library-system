@@ -25,12 +25,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($quantity < $quantity_borrowed) {
             $message = "❌ Cannot set quantity less than borrowed copies ($quantity_borrowed).";
         } else {
-            $stmt = $conn->prepare("UPDATE books SET title=?, author=?, genre=?, publishing_year=?, quantity=? WHERE isbn_number=?");
-            $stmt->bind_param("sssiss", $_POST['title'], $_POST['author'], $_POST['genre'], $year, $quantity, $_POST['isbn']);
+            $status = ($quantity == $quantity_borrowed) ? 'borrowed' : 'available';
+            $stmt = $conn->prepare("UPDATE books SET title=?, author=?, genre=?, publishing_year=?, quantity=?, status=? WHERE isbn_number=?");
+            $stmt->bind_param("sssisss", $_POST['title'], $_POST['author'], $_POST['genre'], $year, $quantity, $status, $_POST['isbn']);
             $stmt->execute();
             $message = "✅ Book updated!";
-        }
     }
+}
 
     // ADD / UPDATE MEMBER
     if ($action === 'add_member') {
@@ -95,16 +96,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $username = $_SESSION['username'] ?? '';
         
         // Verify librarian password and get ID
-        $stmt = $conn->prepare("SELECT id, password FROM accounts WHERE username=?");
+        $stmt = $conn->prepare("SELECT librarian_id, password FROM accounts WHERE username=?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
         $result = $stmt->get_result();
         $acct = $result->fetch_assoc();
         
-        if (!$acct || !password_verify($password, $acct['password'])) {
+        if (!$acct || $password !== $acct['password']) {
             $message = "❌ Invalid password. Return cancelled.";
         } else {
-            $librarian_id = $acct['id'] ?? 0;
+            $librarian_id = $acct['librarian_id'] ?? 0;
             $result = $conn->query("SELECT br.qty_borrowed, br.due_date, b.quantity, b.quantity_borrowed FROM borrow_records br JOIN books b ON br.isbn_number=b.isbn_number WHERE br.isbn_number='$isbn' AND br.date_returned IS NULL LIMIT 1");
             if ($row = $result->fetch_assoc()) {
                 $days = max(0, (strtotime(date('Y-m-d')) - strtotime($row['due_date'])) / 86400);
@@ -126,19 +127,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ARCHIVE / RESTORE
     if ($action === 'archive_book') {
-        $stmt = $conn->prepare("UPDATE books SET status='archived' WHERE isbn_number=?"); $stmt->bind_param("s", $_POST['isbn']); $stmt->execute();
-        $message = "📦 Book archived.";
+        $isbn = $_POST['isbn'];
+        $check = $conn->query("SELECT COUNT(*) as count FROM borrow_records WHERE isbn_number='$isbn' AND date_returned IS NULL");
+        $result = $check->fetch_assoc();
+        
+        if ($result['count'] > 0) {
+            $message = "❌ Cannot archive book with active loans. Please return all copies first.";
+        } else {
+            $stmt = $conn->prepare("UPDATE books SET status='archived' WHERE isbn_number=?");
+            $stmt->bind_param("s", $isbn);
+            $stmt->execute();
+            $message = "📦 Book archived.";
+        }
     }
+
     if ($action === 'restore_book') {
-        $stmt = $conn->prepare("UPDATE books SET status='available' WHERE isbn_number=?"); $stmt->bind_param("s", $_POST['isbn']); $stmt->execute();
+        $stmt = $conn->prepare("UPDATE books SET status='available' WHERE isbn_number=?"); 
+        $stmt->bind_param("s", $_POST['isbn']); 
+        $stmt->execute();
         $message = "✅ Book restored.";
     }
+
     if ($action === 'archive_member') {
-        $stmt = $conn->prepare("UPDATE members SET status='archived' WHERE member_id=?"); $stmt->bind_param("i", $_POST['id']); $stmt->execute();
-        $message = "📦 Member archived.";
+        $member_id = (int)$_POST['id'];
+        $check = $conn->query("SELECT COUNT(*) as count FROM borrow_records WHERE member_id=$member_id AND date_returned IS NULL");
+        $result = $check->fetch_assoc();
+        
+        if ($result['count'] > 0) {
+            $message = "❌ Cannot archive member with active loans. Please return all borrowed books first.";
+        } else {
+            $stmt = $conn->prepare("UPDATE members SET status='archived' WHERE member_id=?");
+            $stmt->bind_param("i", $member_id);
+            $stmt->execute();
+            $message = "📦 Member archived.";
+        }
     }
+
     if ($action === 'restore_member') {
-        $stmt = $conn->prepare("UPDATE members SET status='active' WHERE member_id=?"); $stmt->bind_param("i", $_POST['id']); $stmt->execute();
+        $stmt = $conn->prepare("UPDATE members SET status='active' WHERE member_id=?"); 
+        $stmt->bind_param("i", $_POST['id']); 
+        $stmt->execute();
         $message = "✅ Member restored.";
     }
 }
