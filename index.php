@@ -25,13 +25,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($quantity < $quantity_borrowed) {
             $message = "❌ Cannot set quantity less than borrowed copies ($quantity_borrowed).";
         } else {
-            $status = ($quantity == $quantity_borrowed) ? 'borrowed' : 'available';
-            $stmt = $conn->prepare("UPDATE books SET title=?, author=?, genre=?, publishing_year=?, quantity=?, status=? WHERE isbn_number=?");
-            $stmt->bind_param("sssisss", $_POST['title'], $_POST['author'], $_POST['genre'], $year, $quantity, $status, $_POST['isbn']);
+            $stmt = $conn->prepare("UPDATE books SET title=?, author=?, genre=?, publishing_year=?, quantity=? WHERE isbn_number=?");
+            $stmt->bind_param("sssiss", $_POST['title'], $_POST['author'], $_POST['genre'], $year, $quantity, $_POST['isbn']);
             $stmt->execute();
             $message = "✅ Book updated!";
+        }
     }
-}
 
     // ADD / UPDATE MEMBER
     if ($action === 'add_member') {
@@ -96,16 +95,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $username = $_SESSION['username'] ?? '';
         
         // Verify librarian password and get ID
-        $stmt = $conn->prepare("SELECT librarian_id, password FROM accounts WHERE username=?");
+        $stmt = $conn->prepare("SELECT id, password FROM accounts WHERE username=?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
         $result = $stmt->get_result();
         $acct = $result->fetch_assoc();
         
-        if (!$acct || $password !== $acct['password']) {
+        if (!$acct || !password_verify($password, $acct['password'])) {
             $message = "❌ Invalid password. Return cancelled.";
         } else {
-            $librarian_id = $acct['librarian_id'] ?? 0;
+            $librarian_id = $acct['id'] ?? 0;
             $result = $conn->query("SELECT br.qty_borrowed, br.due_date, b.quantity, b.quantity_borrowed FROM borrow_records br JOIN books b ON br.isbn_number=b.isbn_number WHERE br.isbn_number='$isbn' AND br.date_returned IS NULL LIMIT 1");
             if ($row = $result->fetch_assoc()) {
                 $days = max(0, (strtotime(date('Y-m-d')) - strtotime($row['due_date'])) / 86400);
@@ -125,49 +124,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // ARCHIVE / RESTORE
+       // ARCHIVE / RESTORE
     if ($action === 'archive_book') {
-        $isbn = $_POST['isbn'];
-        $check = $conn->query("SELECT COUNT(*) as count FROM borrow_records WHERE isbn_number='$isbn' AND date_returned IS NULL");
-        $result = $check->fetch_assoc();
-        
-        if ($result['count'] > 0) {
-            $message = "❌ Cannot archive book with active loans. Please return all copies first.";
-        } else {
-            $stmt = $conn->prepare("UPDATE books SET status='archived' WHERE isbn_number=?");
-            $stmt->bind_param("s", $isbn);
-            $stmt->execute();
-            $message = "📦 Book archived.";
-        }
+        $stmt = $conn->prepare("UPDATE books SET status='archived' WHERE isbn_number=?"); 
+        $stmt->bind_param("s", $_POST['isbn']); 
+        $stmt->execute();
+        $message = "📦 Book archived.";
     }
-
     if ($action === 'restore_book') {
         $stmt = $conn->prepare("UPDATE books SET status='available' WHERE isbn_number=?"); 
         $stmt->bind_param("s", $_POST['isbn']); 
         $stmt->execute();
         $message = "✅ Book restored.";
     }
-
     if ($action === 'archive_member') {
-        $member_id = (int)$_POST['id'];
-        $check = $conn->query("SELECT COUNT(*) as count FROM borrow_records WHERE member_id=$member_id AND date_returned IS NULL");
-        $result = $check->fetch_assoc();
-        
-        if ($result['count'] > 0) {
-            $message = "❌ Cannot archive member with active loans. Please return all borrowed books first.";
-        } else {
-            $stmt = $conn->prepare("UPDATE members SET status='archived' WHERE member_id=?");
-            $stmt->bind_param("i", $member_id);
-            $stmt->execute();
-            $message = "📦 Member archived.";
-        }
+        $stmt = $conn->prepare("UPDATE members SET status='archived' WHERE member_id=?"); 
+        $stmt->bind_param("i", $_POST['id']); 
+        $stmt->execute();
+        $message = "📦 Member archived.";
     }
-
     if ($action === 'restore_member') {
         $stmt = $conn->prepare("UPDATE members SET status='active' WHERE member_id=?"); 
         $stmt->bind_param("i", $_POST['id']); 
         $stmt->execute();
         $message = "✅ Member restored.";
+    }
+
+    // === DELETE ACTIONS ===
+    if ($action === 'delete_book') {
+        $stmt = $conn->prepare("DELETE FROM books WHERE isbn_number=?");
+        $stmt->bind_param("s", $_POST['isbn']);
+        $stmt->execute();
+        $message = "🗑️ Book permanently deleted.";
+    }
+
+    if ($action === 'delete_member') {
+        $stmt = $conn->prepare("DELETE FROM members WHERE member_id=?");
+        $stmt->bind_param("i", $_POST['id']);
+        $stmt->execute();
+        $message = "🗑️ Member permanently deleted.";
     }
 }
 
@@ -408,7 +403,7 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
         </div>
         <?php endif; ?>
 
-        <!-- ARCHIVED -->
+                <!-- ARCHIVED -->
         <?php if ($isLoggedIn): ?>
         <div class="tab-pane fade" id="archived">
             <div class="row g-4">
@@ -419,7 +414,10 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
                             <?php while($b = $archived_books->fetch_assoc()): ?>
                                 <tr>
                                     <td><?= htmlspecialchars($b['title']) ?></td>
-                                    <td><button class="btn btn-sm btn-success" onclick="restoreBook('<?= $b['isbn_number'] ?>')">Restore</button></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-success me-1" onclick="restoreBook('<?= $b['isbn_number'] ?>')">Restore</button>
+                                        <button class="btn btn-sm btn-danger" onclick="deleteBook('<?= $b['isbn_number'] ?>')">Delete</button>
+                                    </td>
                                 </tr>
                             <?php endwhile; ?>
                         </table>
@@ -432,7 +430,10 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
                             <?php while($m = $archived_members->fetch_assoc()): ?>
                                 <tr>
                                     <td><?= htmlspecialchars($m['first_name'].' '.$m['last_name']) ?></td>
-                                    <td><button class="btn btn-sm btn-success" onclick="restoreMember(<?= $m['member_id'] ?>)">Restore</button></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-success me-1" onclick="restoreMember(<?= $m['member_id'] ?>)">Restore</button>
+                                        <button class="btn btn-sm btn-danger" onclick="deleteMember(<?= $m['member_id'] ?>)">Delete</button>
+                                    </td>
                                 </tr>
                             <?php endwhile; ?>
                         </table>
@@ -441,8 +442,6 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
             </div>
         </div>
         <?php endif; ?>
-    </div>
-</div>
 
 <!-- ====================== MODALS ====================== -->
 
@@ -687,6 +686,18 @@ function post(action, key, value) {
     f.method = 'POST';
     f.innerHTML = `<input type="hidden" name="action" value="${action}"><input type="hidden" name="${key}" value="${value}">`;
     document.body.appendChild(f).submit();
+}
+// Delete Functions
+function deleteBook(isbn) {
+    if (confirm('⚠️ Permanently delete this book? This cannot be undone.')) {
+        post('delete_book', 'isbn', isbn);
+    }
+}
+
+function deleteMember(id) {
+    if (confirm('⚠️ Permanently delete this member? This cannot be undone.')) {
+        post('delete_member', 'id', id);
+    }
 }
 </script>
 </body>
