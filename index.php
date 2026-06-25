@@ -166,6 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+
 // FETCH DATA
 $active_books = $conn->query("SELECT * FROM books WHERE status != 'archived' ORDER BY title");
 $archived_books = $conn->query("SELECT * FROM books WHERE status = 'archived' ORDER BY title");
@@ -205,6 +206,27 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
         .nav-link.active { font-weight: 600; border-bottom: 4px solid #3b82f6; }
         .btn { border-radius: 8px; }
         .search-box { max-width: 350px; }
+        #customPopup {
+    position: fixed;
+    top:0; left:0;
+    width:100%; height:100%;
+    background: rgba(0,0,0,0.5);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+}
+
+.popup-box {
+    background:white;
+    padding:20px;
+    border-radius:10px;
+    text-align:center;
+}
+
+.popup-box button {
+    margin:5px;
+    padding:5px 10px;
+}
     </style>
 </head>
 <body>
@@ -588,11 +610,37 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
         </div>
     </div>
 </div>
+<div id="customPopup" style="display:none;">
+  <div class="popup-box">
+    <p id="popupMessage"></p>
+    <div id="popupButtons"></div>
+  </div>
+</div>
+<h2>Librarians</h2>
+
+<button onclick="openAddPopup()">+ Add Librarian</button>
+
+<table border="1" width="100%">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Status</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody id="librarianTable">
+        <!-- Filled by PHP -->
+    </tbody>
+</table>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+// ================= SEARCH =================
+
 // Search Books
-document.getElementById('bookSearch').addEventListener('keyup', function() {
+document.getElementById('bookSearch')?.addEventListener('keyup', function() {
     let value = this.value.toLowerCase();
     let rows = document.querySelectorAll("#booksTable tbody tr");
     rows.forEach(row => {
@@ -601,7 +649,7 @@ document.getElementById('bookSearch').addEventListener('keyup', function() {
 });
 
 // Search Members
-document.getElementById('memberSearch').addEventListener('keyup', function() {
+document.getElementById('memberSearch')?.addEventListener('keyup', function() {
     let value = this.value.toLowerCase();
     let rows = document.querySelectorAll("#membersTable tbody tr");
     rows.forEach(row => {
@@ -609,7 +657,9 @@ document.getElementById('memberSearch').addEventListener('keyup', function() {
     });
 });
 
-// Edit Functions
+
+// ================= MODALS =================
+
 function openReturnModal(isbn, title) {
     document.getElementById('return_isbn').value = isbn;
     document.getElementById('return_book_title').value = title;
@@ -618,8 +668,7 @@ function openReturnModal(isbn, title) {
     document.getElementById('return_remarks').value = '';
     document.getElementById('passwordError').textContent = '';
     document.getElementById('fineError').textContent = '';
-    
-    // Fetch late fee for this book
+
     fetch('', {
         method: 'POST',
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -630,29 +679,8 @@ function openReturnModal(isbn, title) {
         document.getElementById('return_late_fee').value = '₱' + parseFloat(data.late_fee).toFixed(2);
         document.getElementById('return_late_fee_value').value = data.late_fee;
     });
-    
-    new bootstrap.Modal(document.getElementById('returnBookModal')).show();
-}
 
-function validateReturnForm() {
-    const password = document.getElementById('return_password').value;
-    const customFine = parseInt(document.getElementById('return_custom_fine').value) || 0;
-    const minFine = parseInt(document.getElementById('return_late_fee_value').value) || 0;
-    
-    document.getElementById('passwordError').textContent = '';
-    document.getElementById('fineError').textContent = '';
-    
-    if (!password) {
-        document.getElementById('passwordError').textContent = 'Password is required';
-        return false;
-    }
-    
-    if (customFine > 0 && customFine < minFine) {
-        document.getElementById('fineError').textContent = `Fine cannot be less than ₱${minFine} (calculated late fees). Please adjust or leave at 0 to use late fees.`;
-        return false;
-    }
-    
-    return true;
+    new bootstrap.Modal(document.getElementById('returnBookModal')).show();
 }
 
 function editBook(isbn, title, author, genre, year, quantity, quantity_borrowed) {
@@ -675,30 +703,105 @@ function editMember(id, first, last, contact, email) {
     new bootstrap.Modal(document.getElementById('editMemberModal')).show();
 }
 
-// Archive & Restore
-function archiveBook(isbn){ if(confirm('Archive this book?')) post('archive_book','isbn',isbn); }
-function restoreBook(isbn){ if(confirm('Restore this book?')) post('restore_book','isbn',isbn); }
-function archiveMember(id){ if(confirm('Archive this member?')) post('archive_member','id',id); }
-function restoreMember(id){ if(confirm('Restore this member?')) post('restore_member','id',id); }
+
+// ================= VALIDATION =================
+
+function validateReturnForm() {
+    const password = document.getElementById('return_password').value;
+    const customFine = parseInt(document.getElementById('return_custom_fine').value) || 0;
+    const minFine = parseInt(document.getElementById('return_late_fee_value').value) || 0;
+
+    document.getElementById('passwordError').textContent = '';
+    document.getElementById('fineError').textContent = '';
+
+    if (!password) {
+        document.getElementById('passwordError').textContent = 'Password is required';
+        return false;
+    }
+
+    if (customFine > 0 && customFine < minFine) {
+        document.getElementById('fineError').textContent =
+            `Fine cannot be less than ₱${minFine}`;
+        return false;
+    }
+
+    return true;
+}
+
+
+// ================= CUSTOM POPUP =================
+
+function showPopup(message) {
+    document.getElementById("popupMessage").innerText = message;
+    document.getElementById("popupButtons").innerHTML =
+        `<button onclick="closePopup()">OK</button>`;
+    document.getElementById("customPopup").style.display = "flex";
+}
+
+function confirmPopup(message, action, key, value) {
+    document.getElementById("popupMessage").innerText = message;
+
+    document.getElementById("popupButtons").innerHTML =
+        `<button onclick="confirmYes('${action}','${key}','${value}')">Yes</button>
+         <button onclick="closePopup()">Cancel</button>`;
+
+    document.getElementById("customPopup").style.display = "flex";
+}
+
+function confirmYes(action, key, value) {
+    closePopup();
+    post(action, key, value);
+}
+
+function closePopup() {
+    document.getElementById("customPopup").style.display = "none";
+}
+
+
+// ================= ACTION HANDLERS =================
+
+// BOOKS
+function archiveBook(isbn){
+    confirmPopup('Archive this book?', 'archive_book', 'isbn', isbn);
+}
+
+function restoreBook(isbn){
+    confirmPopup('Restore this book?', 'restore_book', 'isbn', isbn);
+}
+
+function deleteBook(isbn){
+    confirmPopup('⚠️ Permanently delete this book?', 'delete_book', 'isbn', isbn);
+}
+
+// MEMBERS
+function archiveMember(id){
+    confirmPopup('Archive this member?', 'archive_member', 'id', id);
+}
+
+function restoreMember(id){
+    confirmPopup('Restore this member?', 'restore_member', 'id', id);
+}
+
+function deleteMember(id){
+    confirmPopup('⚠️ Permanently delete this member?', 'delete_member', 'id', id);
+}
+
+
+// ================= POST HELPER =================
 
 function post(action, key, value) {
-    const f = document.createElement('form'); 
+    const f = document.createElement('form');
     f.method = 'POST';
-    f.innerHTML = `<input type="hidden" name="action" value="${action}"><input type="hidden" name="${key}" value="${value}">`;
-    document.body.appendChild(f).submit();
-}
-// Delete Functions
-function deleteBook(isbn) {
-    if (confirm('⚠️ Permanently delete this book? This cannot be undone.')) {
-        post('delete_book', 'isbn', isbn);
-    }
-}
 
-function deleteMember(id) {
-    if (confirm('⚠️ Permanently delete this member? This cannot be undone.')) {
-        post('delete_member', 'id', id);
-    }
+    f.innerHTML = `
+        <input type="hidden" name="action" value="${action}">
+        <input type="hidden" name="${key}" value="${value}">
+    `;
+
+    document.body.appendChild(f);
+    f.submit();
 }
+</script>
 </script>
 </body>
 </html>
