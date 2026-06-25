@@ -249,6 +249,7 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#circulation">Borrow / Return</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#overdue">Overdue & Fines</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#archived">Archived</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#librarians">Librarians</a></li>
         <?php endif; ?>
     </ul>
 
@@ -464,6 +465,45 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
             </div>
         </div>
         <?php endif; ?>
+ <!-- LIBRARIANS -->
+<div class="tab-pane fade" id="librarians">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4>Librarians</h4>
+    </div>
+
+    <div class="card">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+
+            <?php
+            $result = $conn->query("SELECT * FROM librarians");
+
+            while($row = $result->fetch_assoc()):
+            ?>
+                <tr>
+                    <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
+                    <td><?= htmlspecialchars($row['email']) ?></td>
+                    <td><?= htmlspecialchars($row['mobile_number']) ?></td>
+                    <td>
+                        <span class="badge bg-<?= $row['status']=='active'?'success':'secondary' ?>">
+                            <?= $row['status'] ?>
+                        </span>
+                    </td>
+                </tr>
+            <?php endwhile; ?>
+
+            </tbody>
+        </table>
+    </div>
+</div>
 
 <!-- ====================== MODALS ====================== -->
 
@@ -616,24 +656,7 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
     <div id="popupButtons"></div>
   </div>
 </div>
-<h2>Librarians</h2>
 
-<button onclick="openAddPopup()">+ Add Librarian</button>
-
-<table border="1" width="100%">
-    <thead>
-        <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Phone</th>
-            <th>Status</th>
-            <th>Actions</th>
-        </tr>
-    </thead>
-    <tbody id="librarianTable">
-        <!-- Filled by PHP -->
-    </tbody>
-</table>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
