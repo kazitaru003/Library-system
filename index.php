@@ -95,16 +95,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $username = $_SESSION['username'] ?? '';
         
         // Verify librarian password and get ID
-        $stmt = $conn->prepare("SELECT id, password FROM accounts WHERE username=?");
+        $stmt = $conn->prepare("SELECT librarian_id, password FROM accounts WHERE username=?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
         $result = $stmt->get_result();
         $acct = $result->fetch_assoc();
         
-        if (!$acct || !password_verify($password, $acct['password'])) {
+        if (!$acct || $password !== $acct['password']) {
             $message = "❌ Invalid password. Return cancelled.";
         } else {
-            $librarian_id = $acct['id'] ?? 0;
+            $librarian_id = $acct['librarian_id'] ?? 0;
             $result = $conn->query("SELECT br.qty_borrowed, br.due_date, b.quantity, b.quantity_borrowed FROM borrow_records br JOIN books b ON br.isbn_number=b.isbn_number WHERE br.isbn_number='$isbn' AND br.date_returned IS NULL LIMIT 1");
             if ($row = $result->fetch_assoc()) {
                 $days = max(0, (strtotime(date('Y-m-d')) - strtotime($row['due_date'])) / 86400);

@@ -91,6 +91,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <input type="password" name="password" class="form-control form-control-lg" placeholder="Enter your password" required>
             </div>
             <button type="submit" class="btn btn-primary btn-lg w-100">Login</button>
+
+            <div class="text-center mt-3">
+                <a href="index.php" class="text-muted text-decoration-none small">Not a librarian?</a>
+            </div>
         </form>
     </div>
 </div>
