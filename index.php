@@ -126,11 +126,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
        // ARCHIVE / RESTORE
     if ($action === 'archive_book') {
-        $stmt = $conn->prepare("UPDATE books SET status='archived' WHERE isbn_number=?"); 
-        $stmt->bind_param("s", $_POST['isbn']); 
-        $stmt->execute();
-        $message = "📦 Book archived.";
+        $isbn = $_POST['isbn'];
+        
+        // Check for active borrow records
+        $check = $conn->query("SELECT COUNT(*) as count FROM borrow_records WHERE isbn_number='$isbn' AND date_returned IS NULL");
+        $row = $check->fetch_assoc();
+        
+        if ($row['count'] > 0) {
+            $message = "❌ Cannot archive book. It has active borrow records. Return all copies first.";
+        } else {
+            $stmt = $conn->prepare("UPDATE books SET status='archived' WHERE isbn_number=?"); 
+            $stmt->bind_param("s", $isbn); 
+            $stmt->execute();
+            $message = "📦 Book archived.";
     }
+}
     if ($action === 'restore_book') {
         $stmt = $conn->prepare("UPDATE books SET status='available' WHERE isbn_number=?"); 
         $stmt->bind_param("s", $_POST['isbn']); 
@@ -138,11 +148,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $message = "✅ Book restored.";
     }
     if ($action === 'archive_member') {
-        $stmt = $conn->prepare("UPDATE members SET status='archived' WHERE member_id=?"); 
-        $stmt->bind_param("i", $_POST['id']); 
-        $stmt->execute();
-        $message = "📦 Member archived.";
+        $member_id = $_POST['id'];
+        
+        // Check for active borrow records
+        $check = $conn->query("SELECT COUNT(*) as count FROM borrow_records WHERE member_id=$member_id AND date_returned IS NULL");
+        $row = $check->fetch_assoc();
+        
+        if ($row['count'] > 0) {
+            $message = "❌ Cannot archive member. They have active borrow records. All books must be returned first.";
+        } else {
+            $stmt = $conn->prepare("UPDATE members SET status='archived' WHERE member_id=?"); 
+            $stmt->bind_param("i", $member_id); 
+            $stmt->execute();
+            $message = "📦 Member archived.";
     }
+}
     if ($action === 'restore_member') {
         $stmt = $conn->prepare("UPDATE members SET status='active' WHERE member_id=?"); 
         $stmt->bind_param("i", $_POST['id']); 
@@ -493,8 +513,8 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
                     <td><?= htmlspecialchars($row['email']) ?></td>
                     <td><?= htmlspecialchars($row['mobile_number']) ?></td>
                     <td>
-                        <span class="badge bg-<?= $row['status']=='active'?'success':'secondary' ?>">
-                            <?= $row['status'] ?>
+                        <span class="badge bg-<?= ($row['status'] ?? 'inactive') == 'active'?'success':'secondary' ?>">
+                            <?= $row['status'] ?? 'NULL' ?>
                         </span>
                     </td>
                 </tr>
