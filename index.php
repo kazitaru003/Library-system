@@ -25,8 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($quantity < $quantity_borrowed) {
             $message = "❌ Cannot set quantity less than borrowed copies ($quantity_borrowed).";
         } else {
-            $stmt = $conn->prepare("UPDATE books SET title=?, author=?, genre=?, publishing_year=?, quantity=? WHERE isbn_number=?");
-            $stmt->bind_param("sssiss", $_POST['title'], $_POST['author'], $_POST['genre'], $year, $quantity, $_POST['isbn']);
+            $status = ($quantity == $quantity_borrowed) ? 'borrowed' : 'available';
+            $stmt = $conn->prepare("UPDATE books SET title=?, author=?, genre=?, publishing_year=?, quantity=?, status=? WHERE isbn_number=?");
+            $stmt->bind_param("sssisss", $_POST['title'], $_POST['author'], $_POST['genre'], $year, $quantity, $status, $_POST['isbn']);
             $stmt->execute();
             $message = "✅ Book updated!";
         }
@@ -183,6 +184,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bind_param("i", $_POST['id']);
         $stmt->execute();
         $message = "🗑️ Member permanently deleted.";
+    }
+    // ADD LIBRARIAN
+    if ($action === 'add_librarian') {
+        $stmt = $conn->prepare("INSERT INTO librarians (first_name, last_name, mobile_number, email, status) VALUES (?, ?, ?, ?, 'active')");
+        $stmt->bind_param("ssss", $_POST['first'], $_POST['last'], $_POST['mobile'], $_POST['email']);
+        $stmt->execute();
+        $message = "✅ Librarian added!";
+    }
+
+    // UPDATE LIBRARIAN
+    if ($action === 'update_librarian') {
+        $stmt = $conn->prepare("UPDATE librarians SET first_name=?, last_name=?, mobile_number=?, email=?, status=? WHERE librarian_id=?");
+        $stmt->bind_param("sssssi", $_POST['first'], $_POST['last'], $_POST['mobile'], $_POST['email'], $_POST['status'], $_POST['id']);
+        $stmt->execute();
+        $message = "✅ Librarian updated!";
+    }
+
+    // RESTORE LIBRARIAN
+    if ($action === 'restore_librarian') {
+        $stmt = $conn->prepare("UPDATE librarians SET status='active' WHERE librarian_id=?");
+        $stmt->bind_param("i", $_POST['id']);
+        $stmt->execute();
+        $message = "✅ Librarian restored.";
+    }
+
+    // ARCHIVE LIBRARIAN
+    if ($action === 'archive_librarian') {
+        $stmt = $conn->prepare("UPDATE librarians SET status='archived' WHERE librarian_id=?");
+        $stmt->bind_param("i", $_POST['id']);
+        $stmt->execute();
+        $message = "📦 Librarian archived.";
+    }
+
+    // DELETE LIBRARIAN (with check)
+    if ($action === 'delete_librarian') {
+        $id = $_POST['id'];
+        
+        // Check for returns associated with this librarian
+        $check = $conn->query("SELECT COUNT(*) as count FROM borrow_records WHERE librarian_id=$id AND date_returned IS NOT NULL");
+        $row = $check->fetch_assoc();
+        
+        if ($row['count'] > 0) {
+            $message = "❌ Cannot delete librarian. They have return records. Use archive instead.";
+        } else {
+            $stmt = $conn->prepare("DELETE FROM librarians WHERE librarian_id=?");
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $message = "🗑️ Librarian permanently deleted.";
+        }
     }
 }
 
@@ -485,45 +535,65 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
             </div>
         </div>
         <?php endif; ?>
- <!-- LIBRARIANS -->
-<div class="tab-pane fade" id="librarians">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4>Librarians</h4>
-    </div>
+                <!-- LIBRARIANS -->
+        <?php if ($isLoggedIn): ?>
+        <div class="tab-pane fade" id="librarians">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4>Librarians</h4>
+                <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#addLibrarianModal">+ Add Librarian</button>
+            </div>
 
-    <div class="card">
-        <table class="table table-hover">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Phone</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
+            <div class="card">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Phone</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
 
-            <?php
-            $result = $conn->query("SELECT * FROM librarians");
+                    <?php
+                    $result = $conn->query("SELECT * FROM librarians");
 
-            while($row = $result->fetch_assoc()):
-            ?>
-                <tr>
-                    <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
-                    <td><?= htmlspecialchars($row['email']) ?></td>
-                    <td><?= htmlspecialchars($row['mobile_number']) ?></td>
-                    <td>
-                        <span class="badge bg-<?= ($row['status'] ?? 'inactive') == 'active'?'success':'secondary' ?>">
-                            <?= $row['status'] ?? 'NULL' ?>
-                        </span>
-                    </td>
-                </tr>
-            <?php endwhile; ?>
+                    while($row = $result->fetch_assoc()):
+                        // Check if this librarian has any returns
+                        $check = $conn->query("SELECT COUNT(*) as count FROM borrow_records WHERE librarian_id=".$row['librarian_id']." AND date_returned IS NOT NULL");
+                        $returnCount = $check->fetch_assoc()['count'];
+                    ?>
+                        <tr>
+                            <td><?= htmlspecialchars($row['first_name'].' '.$row['last_name']) ?></td>
+                            <td><?= htmlspecialchars($row['email']) ?></td>
+                            <td><?= htmlspecialchars($row['mobile_number']) ?></td>
+                            <td>
+                                <span class="badge bg-<?= ($row['status'] ?? 'inactive') == 'active'?'success':'secondary' ?>">
+                                    <?= $row['status'] ?? 'inactive' ?>
+                                </span>
+                            </td>
+                            <td>
+                                <?php if ($row['status'] == 'active'): ?>
+                                    <button class="btn btn-sm btn-primary" onclick="editLibrarian(<?= $row['librarian_id'] ?>,'<?= htmlspecialchars($row['first_name']) ?>','<?= htmlspecialchars($row['last_name']) ?>','<?= htmlspecialchars($row['mobile_number']) ?>','<?= htmlspecialchars($row['email']) ?>','<?= $row['status'] ?>')">Edit</button>
+                                    <?php if ($returnCount > 0): ?>
+                                        <button class="btn btn-sm btn-warning" onclick="archiveLibrarian(<?= $row['librarian_id'] ?>)">Archive</button>
+                                    <?php else: ?>
+                                        <button class="btn btn-sm btn-danger" onclick="deleteLibrarian(<?= $row['librarian_id'] ?>)">Delete</button>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    <button class="btn btn-sm btn-success" onclick="restoreLibrarian(<?= $row['librarian_id'] ?>)">Restore</button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteLibrarian(<?= $row['librarian_id'] ?>)">Delete</button>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endwhile; ?>
 
-            </tbody>
-        </table>
-    </div>
-</div>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php endif; ?>
 
 <!-- ====================== MODALS ====================== -->
 
@@ -676,6 +746,59 @@ $historical_loans = $conn->query("SELECT br.*, b.title, CONCAT(m.first_name,' ',
     <div id="popupButtons"></div>
   </div>
 </div>
+<!-- Add Librarian Modal -->
+<div class="modal fade" id="addLibrarianModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST">
+                <div class="modal-header"><h5>Add New Librarian</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="add_librarian">
+                    <input name="first" class="form-control mb-2" placeholder="First Name" required>
+                    <input name="last" class="form-control mb-2" placeholder="Last Name" required>
+                    <input name="mobile" class="form-control mb-2" placeholder="Mobile Number" required>
+                    <input name="email" class="form-control" placeholder="Email" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Add Librarian</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Librarian Modal -->
+<div class="modal fade" id="editLibrarianModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST">
+                <div class="modal-header"><h5>Edit Librarian</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="update_librarian">
+                    <input type="hidden" name="id" id="edit_librarian_id">
+                    <label class="form-label">First Name</label>
+                    <input name="first" id="edit_lib_first" class="form-control mb-2" required>
+                    <label class="form-label">Last Name</label>
+                    <input name="last" id="edit_lib_last" class="form-control mb-2" required>
+                    <label class="form-label">Mobile Number</label>
+                    <input name="mobile" id="edit_lib_mobile" class="form-control mb-2" required>
+                    <label class="form-label">Email</label>
+                    <input name="email" id="edit_lib_email" class="form-control mb-2" required>
+                    <label class="form-label">Status</label>
+                    <select name="status" id="edit_lib_status" class="form-select">
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -744,6 +867,28 @@ function editMember(id, first, last, contact, email) {
     document.getElementById('edit_contact').value = contact;
     document.getElementById('edit_email').value = email;
     new bootstrap.Modal(document.getElementById('editMemberModal')).show();
+}
+
+function editLibrarian(id, first, last, mobile, email, status) {
+    document.getElementById('edit_librarian_id').value = id;
+    document.getElementById('edit_lib_first').value = first;
+    document.getElementById('edit_lib_last').value = last;
+    document.getElementById('edit_lib_mobile').value = mobile;
+    document.getElementById('edit_lib_email').value = email;
+    document.getElementById('edit_lib_status').value = status;
+    new bootstrap.Modal(document.getElementById('editLibrarianModal')).show();
+}
+
+function archiveLibrarian(id){
+    confirmPopup('Archive this librarian?', 'archive_librarian', 'id', id);
+}
+
+function deleteLibrarian(id){
+    confirmPopup('⚠️ Permanently delete this librarian?', 'delete_librarian', 'id', id);
+}
+
+function restoreLibrarian(id){
+    confirmPopup('Restore this librarian?', 'restore_librarian', 'id', id);
 }
 
 
@@ -828,7 +973,6 @@ function restoreMember(id){
 function deleteMember(id){
     confirmPopup('⚠️ Permanently delete this member?', 'delete_member', 'id', id);
 }
-
 
 // ================= POST HELPER =================
 
